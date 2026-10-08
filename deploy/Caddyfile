@@ -1,0 +1,6 @@
+# HTTPS for Paperclip. Caddy obtains and renews the certificate by itself;
+# the domain must point at this VPS and ports 80 and 443 must be open.
+{$PAPERCLIP_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy paperclip:3100
+}

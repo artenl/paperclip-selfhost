@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: ShellCheck
+        run: shellcheck -S warning paperclip.sh install.sh
+      - name: Compose file is valid in both modes
+        working-directory: deploy
+        run: |
+          printf '%s\n' PAPERCLIP_VERSION=0 POSTGRES_PASSWORD=x BETTER_AUTH_SECRET=x PAPERCLIP_PUBLIC_URL=http://x > .env
+          docker compose config --quiet
+          COMPOSE_PROFILES=https docker compose config --quiet
+
+  one-line-install:
+    # Runs the public one-liner exactly as a user would, against this commit.
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      REPO: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+      REF: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Install with the one-line command (local mode, no prompts)
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/$REPO/$REF/install.sh" \
+            | sudo PAPERCLIP_SELFHOST_REPO="$REPO" PAPERCLIP_SELFHOST_REF="$REF" bash -s -- --local --yes \
+            | tee install.log
+          grep -q '/invite/pcp_bootstrap_' install.log
+      - name: Paperclip is healthy and its 8-hour Claude sign-in is off
+        run: |
+          health="$(curl -fsS http://127.0.0.1:3100/api/health)"
+          echo "$health" | grep -q '"status":"ok"'
+          echo "$health" | grep -q '"localAiLoginSupported":false'
+          curl -fsS -o /dev/null http://127.0.0.1:3100/
+      - name: Status, backup and an idempotent re-run
+        run: |
+          sudo paperclip status
+          sudo paperclip backup
+          ls -l /opt/paperclip/backups
+          before="$(sudo sha256sum /opt/paperclip/deploy/.env)"
+          sudo paperclip install --yes
+          [ "$before" = "$(sudo sha256sum /opt/paperclip/deploy/.env)" ]
+      - name: Logs on failure
+        if: failure()
+        run: cd /opt/paperclip/deploy && sudo docker compose logs --tail=200

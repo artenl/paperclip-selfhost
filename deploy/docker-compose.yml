@@ -1,0 +1,88 @@
+# Paperclip, self-hosted, 24/7.
+#
+#   db         Postgres 17. Paperclip's data lives here.
+#   paperclip  The Paperclip server and its agents (pinned version, no auto-update).
+#   caddy      HTTPS with a free automatic certificate (only in "https" mode).
+#
+# Settings live in deploy/.env, written by `paperclip install`. Edit them with
+# the `paperclip` command rather than by hand.
+
+name: paperclip
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: paperclip
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run "paperclip install" first}
+      POSTGRES_DB: paperclip
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperclip -d paperclip"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  paperclip:
+    # Pinned on purpose. Change it with: paperclip update <version>
+    image: ghcr.io/paperclipai/paperclip:${PAPERCLIP_VERSION:?Run "paperclip install" first}
+    restart: unless-stopped
+    # The image runs tini as PID 1; this is the backstop against leaked processes.
+    pids_limit: 2048
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://paperclip:${POSTGRES_PASSWORD}@db:5432/paperclip
+      PAPERCLIP_DEPLOYMENT_MODE: authenticated
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: ${PAPERCLIP_EXPOSURE:-public}
+      PAPERCLIP_PUBLIC_URL: ${PAPERCLIP_PUBLIC_URL:?Run "paperclip install" first}
+      PAPERCLIP_ALLOWED_HOSTNAMES: ${PAPERCLIP_ALLOWED_HOSTNAMES:-}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Run "paperclip install" first}
+      PAPERCLIP_AGENT_JWT_SECRET: ${PAPERCLIP_AGENT_JWT_SECRET:-}
+      # paperclip signups off|on
+      PAPERCLIP_AUTH_DISABLE_SIGN_UP: ${PAPERCLIP_AUTH_DISABLE_SIGN_UP:-false}
+      # Long-lived Claude subscription token from `claude setup-token` (valid
+      # one year, no refresh). Every agent without a Paperclip "AI connection"
+      # uses it. Set it with: paperclip token
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+    volumes:
+      # Agent workspaces, uploads, Paperclip's own backups and secrets key.
+      - ./data/paperclip:/paperclip
+    ports:
+      # https mode: 127.0.0.1 only (Caddy is the way in).
+      # local mode: 0.0.0.0, so other machines on your network can reach it.
+      - "${PAPERCLIP_BIND:-127.0.0.1}:${PAPERCLIP_PORT:-3100}:3100"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:3100/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    logging: *logging
+
+  caddy:
+    image: caddy:2.11-alpine
+    restart: unless-stopped
+    # Enabled by COMPOSE_PROFILES=https in deploy/.env.
+    profiles: ["https"]
+    depends_on:
+      - paperclip
+    environment:
+      PAPERCLIP_DOMAIN: ${PAPERCLIP_DOMAIN:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
+    logging: *logging

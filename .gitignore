@@ -1,0 +1,6 @@
+# Created by `paperclip install`; never commit them (secrets, data).
+deploy/.env
+deploy/.env.*
+deploy/data/
+deploy/docker-compose.override.yml
+backups/
