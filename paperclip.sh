@@ -36,11 +36,22 @@ IMAGE_REPO="ghcr.io/paperclipai/paperclip"
 PROJECT_URL="https://github.com/artenl/paperclip-selfhost"
 TOKEN_RE='^sk-ant-oat[0-9]+-[A-Za-z0-9_-]{40,}$'
 ASSUME_YES=0
+DIED=0
 
 say()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m OK\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m !!\033[0m %s\n' "$*" >&2; }
-die()  { printf '\033[1;31mERR\033[0m %s\n' "$*" >&2; exit 1; }
+die()  { DIED=1; printf '\033[1;31mERR\033[0m %s\n' "$*" >&2; exit 1; }
+
+# Never stop without saying why: report any exit that die() did not explain.
+on_exit() {
+  local rc="$1" cmd="$2"
+  if [ "$rc" -ne 0 ] && [ "$DIED" -eq 0 ] && [ "$rc" -ne 130 ]; then
+    printf '\033[1;31mERR\033[0m Stopped unexpectedly (exit %s) while running: %s\n' "$rc" "$cmd" >&2
+    printf '    Running the same command again is safe. If it keeps failing, please report it: %s/issues\n' "$PROJECT_URL" >&2
+  fi
+}
+trap 'on_exit "$?" "$BASH_COMMAND"' EXIT
 
 dc() { (cd "$DEPLOY" && docker compose "$@"); }
 
@@ -98,7 +109,27 @@ wait_healthy() {
 public_ip() { curl -4 -fsS --max-time 8 https://api.ipify.org 2>/dev/null || true; }
 lan_ip() {
   ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") {print $(i+1); exit}}' \
-    || hostname -I 2>/dev/null | awk '{print $1}'
+    || hostname -I 2>/dev/null | awk '{print $1}' || true
+}
+
+normalize_domain() { # trims spaces, a leading http(s):// and any path or port
+  local d
+  d="$(printf '%s' "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | tr '[:upper:]' '[:lower:]')"
+  case "$d" in http://*|https://*) d="${d#*://}" ;; esac
+  d="${d%%/*}"; d="${d%%:*}"
+  printf '%s' "$d"
+}
+valid_domain() {
+  [ "$1" = "localhost" ] || [[ "$1" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]]
+}
+ask_domain() { # $1 = suggestion -> a valid domain on stdout, or returns 1
+  local d
+  while :; do
+    d="$(normalize_domain "$(ask "Domain" "$1")")"
+    if valid_domain "$d"; then printf '%s' "$d"; return 0; fi
+    warn "'$d' is not a domain name. Example: paperclip.example.com${1:+ (or press Enter for $1)}"
+    has_tty || return 1
+  done
 }
 
 ensure_docker() {
@@ -142,7 +173,7 @@ check_ports() {
 check_dns() {
   local domain="$1" mine theirs
   mine="$(public_ip)"
-  theirs="$(getent ahostsv4 "$domain" 2>/dev/null | awk 'NR==1{print $1}')"
+  theirs="$(getent ahostsv4 "$domain" 2>/dev/null | awk 'NR==1{print $1}' || true)"
   if [ -z "$theirs" ]; then
     warn "$domain does not resolve yet. Create a DNS A record: $domain -> ${mine:-<this server IP>}. HTTPS starts once it resolves."
   elif [ -n "$mine" ] && [ "$mine" != "$theirs" ]; then
@@ -230,6 +261,10 @@ cmd_install() {
     esac
   done
   need_root
+  if [ -n "$domain" ]; then
+    domain="$(normalize_domain "$domain")"
+    valid_domain "$domain" || die "--domain '$domain' is not a domain name. Example: paperclip.example.com"
+  fi
   ensure_docker
   mkdir -p "$DEPLOY" "$BACKUPS"
 
@@ -251,14 +286,25 @@ EOF
       if [ "$choice" = "2" ]; then
         local_mode=1
       else
-        while [ -z "$domain" ]; do domain="$(ask "Domain" "$suggestion")"; done
+        domain="$(ask_domain "$suggestion")" || die "No valid domain given."
       fi
     fi
-    domain="${domain#http*://}"; domain="${domain%%/*}"
     if [ "$local_mode" -eq 1 ]; then write_config local "$version" "$port"; else write_config "$domain" "$version" "$port"; fi
     ok "Wrote deploy/.env (private, mode 600)."
   else
     ok "Already configured; keeping deploy/.env and your data."
+    # Repair a saved domain that is not a domain (for example a pasted command).
+    if [ "$(env_get PAPERCLIP_MODE)" = "https" ] && ! valid_domain "$(env_get PAPERCLIP_DOMAIN)"; then
+      warn "The saved domain is not a domain name: '$(env_get PAPERCLIP_DOMAIN)'. Let's fix it."
+      if [ -z "$domain" ]; then
+        has_tty || die "Run again with --domain <name> to fix it."
+        local fix_ip; fix_ip="$(public_ip)"
+        domain="$(ask_domain "${fix_ip:+${fix_ip//./-}.sslip.io}")" || die "No valid domain given."
+      fi
+      env_set PAPERCLIP_DOMAIN "$domain"
+      env_set PAPERCLIP_PUBLIC_URL "https://$domain"
+      ok "Domain set to $domain."
+    fi
   fi
 
   [ "$(env_get PAPERCLIP_MODE)" = "https" ] && check_dns "$(env_get PAPERCLIP_DOMAIN)"
