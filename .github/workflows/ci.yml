@@ -47,7 +47,7 @@ jobs:
         run: |
           sudo paperclip status
           sudo paperclip backup
-          ls -l /opt/paperclip/backups
+          sudo ls -l /opt/paperclip/backups
           before="$(sudo sha256sum /opt/paperclip/deploy/.env)"
           sudo paperclip install --yes
           [ "$before" = "$(sudo sha256sum /opt/paperclip/deploy/.env)" ]
