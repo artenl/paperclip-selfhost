@@ -360,10 +360,31 @@ save_token() {
   cmd_check
 }
 
+parse_setup_token() { # $1 = terminal capture of `claude setup-token` -> token on stdout, or nothing
+  # The token is printed between two fixed lines and wraps at the terminal
+  # width, so read every line between them and join the pieces (as Paperclip's
+  # own parser does). Spaces may be drawn as cursor moves, so the anchor lines
+  # are compared without whitespace.
+  LC_ALL=C sed -E \
+      -e 's/\x1b\][^\x07\x1b]*(\x07|\x1b\\)//g' \
+      -e 's/\x1b\[[0-9;]*[CG]/ /g' \
+      -e 's/\x1b\[[0-?]*[ -\/]*[@-~]//g' \
+      -e 's/\x1b[()][0-9A-Za-z]//g; s/\x1b[=>]//g' "$1" \
+    | tr '\r' '\n' \
+    | LC_ALL=C awk '
+        { line = $0; gsub(/[[:space:]]/, "", line)
+          piece = $0; sub(/^[[:space:]]+/, "", piece); sub(/[[:space:]]+$/, "", piece) }
+        line == "YourOAuthtoken(validfor1year):" { before++; inside = 1; next }
+        index(line, "Storethistokensecurely") == 1 { after++; inside = 0; next }
+        inside && piece != "" { if (piece !~ /^[A-Za-z0-9_-]+$/) bad = 1; token = token piece }
+        END { if (before == 1 && after == 1 && !bad && token ~ /^sk-ant-oat[0-9]+-[A-Za-z0-9_-]+$/ && gsub(/sk-ant-/, "&", token) == 1) print token }'
+}
+
 cmd_token() {
   need_root; need_env
-  local mode="${1:-}" version
+  local mode="${1:-}" version token="" log
   version="$(env_get PAPERCLIP_VERSION)"
+  [[ "$version" =~ ^[A-Za-z0-9._-]+$ ]] || die "Unexpected PAPERCLIP_VERSION in deploy/.env: $version"
   if [ "$mode" != "--paste" ]; then
     has_tty || die "This needs a terminal. Or run 'claude setup-token' elsewhere and: paperclip token --paste"
     cat <<'EOF'
@@ -374,21 +395,36 @@ and never needs refreshing.
   1. A link appears below. Open it in your browser, signed in to the Claude
      account whose subscription the agents should use. Approve.
   2. The page shows a code. Paste it back here and press Enter.
-  3. The terminal prints "Your OAuth token (valid for 1 year)" followed by a
-     token starting with sk-ant-oat01-. Copy the whole token.
+  3. The token is then picked up automatically; there is nothing to copy.
 
 (Already have one from `claude setup-token` on another computer? Press Ctrl+C
 and run: paperclip token --paste)
 
 EOF
     ask "Press Enter to start" "" >/dev/null
-    docker run --rm -it --user node -e HOME=/tmp -e CLAUDE_CODE_OAUTH_TOKEN= \
-      --entrypoint claude "$IMAGE_REPO:$version" setup-token < /dev/tty \
-      || warn "setup-token exited with an error; if you got a token anyway, continue."
+    local cmd="docker run --rm -it --user node -e HOME=/tmp -e CLAUDE_CODE_OAUTH_TOKEN= --entrypoint claude $IMAGE_REPO:$version setup-token"
+    if command -v script >/dev/null 2>&1; then
+      # Record the screen to a private temporary file to read the token from it.
+      log="$(mktemp "$DEPLOY/.setup-token.XXXXXX")"; chmod 600 "$log"
+      script -q -e -c "$cmd" "$log" < /dev/tty || warn "setup-token exited with an error."
+      token="$(parse_setup_token "$log" || true)"
+      if command -v shred >/dev/null 2>&1; then shred -u "$log"; else rm -f "$log"; fi
+    else
+      $cmd < /dev/tty || warn "setup-token exited with an error."
+    fi
   fi
-  echo
-  echo "Paste the token (starts with sk-ant-oat01-; input is hidden), then press Enter:"
-  save_token "$(read_token)"
+  if [ -n "$token" ]; then
+    echo
+    ok "Got the token from the screen (${#token} characters)."
+  else
+    echo
+    [ "$mode" != "--paste" ] && warn "Could not pick the token up automatically; please paste it instead."
+    echo "Paste the token (starts with sk-ant-oat01-; input is hidden). If it spans two"
+    echo "lines on screen, copy both lines. Then press Enter:"
+    token="$(read_token)"
+    [ "${#token}" -lt 100 ] && warn "That token is only ${#token} characters; it may have been cut off at a line break."
+  fi
+  save_token "$token"
 }
 
 cmd_check() {

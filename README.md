@@ -80,9 +80,10 @@ later or again.
 1. A sign-in link appears. Open it in your browser, signed in to the Claude account
    whose subscription the agents should use, and approve.
 2. Paste the code the page shows back into the terminal.
-3. The terminal prints `Your OAuth token (valid for 1 year):` and a token starting
-   with `sk-ant-oat01-`. Copy all of it and paste it when asked. Input is hidden; a
-   line break added by the terminal is fine.
+3. The terminal prints `Your OAuth token (valid for 1 year):` and the token. The
+   script reads it from the screen by itself; there is nothing to copy. If it
+   can't, it asks you to paste the token. It wraps onto several lines in a narrow
+   terminal, so copy all of them.
 
 The script then has Claude answer "OK" through the agents' setup to prove it works.
 Already ran `claude setup-token` elsewhere? Use `paperclip token --paste`.
