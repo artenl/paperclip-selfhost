@@ -45,7 +45,8 @@ jobs:
           curl -fsS -o /dev/null http://127.0.0.1:3100/
       - name: Status, backup and an idempotent re-run
         run: |
-          sudo paperclip status
+          sudo paperclip status | tee status.log
+          grep -q 'Chat connectors: on' status.log
           sudo paperclip backup
           sudo ls -l /opt/paperclip/backups
           before="$(sudo sha256sum /opt/paperclip/deploy/.env)"

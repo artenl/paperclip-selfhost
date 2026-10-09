@@ -16,6 +16,8 @@ the Claude token now) and does everything else:
 - installs Docker if needed;
 - starts Paperclip (pinned version), Postgres 17 and HTTPS with automatic certificates;
 - restarts everything after a crash or a reboot, and backs up daily;
+- turns on Paperclip's chat connectors, so your agents can talk on
+  [Telegram](#telegram-and-other-chat-apps), Discord, Slack or Teams;
 - adds a `paperclip` command for everything afterwards.
 
 > Unofficial community project, not affiliated with Paperclip or Anthropic. It uses
@@ -106,6 +108,29 @@ paperclip signups off
 > **The one rule:** never connect a **Claude subscription** account under
 > Apps → Connections, and never attach one to an agent. An attached connection
 > overrides the server token and brings back the 8-hour expiry.
+
+## Telegram and other chat apps
+
+Paperclip can let people chat with an agent on Telegram, Discord, Slack,
+Microsoft Teams or GitHub. Upstream ships this as an experimental setting that is
+off by default; the installer turns it on. To connect Telegram:
+
+1. In Paperclip's sidebar, open **Connectors**. Find **Telegram** (scroll down)
+   and click **Connect**.
+2. Choose the agent people will talk to.
+3. Click **Open BotFather**, send `/newbot`, and pick a name and a username ending
+   in `bot`. BotFather replies with a token like `123456789:AA...`.
+4. Paste it into **Bot token** and click **Connect bot**.
+
+Then send your bot a message on Telegram. In a group, write
+`/task@your_bot <request>` or reply to one of the bot's messages.
+
+- Telegram, Slack, Teams and GitHub deliver messages to
+  `https://<your domain>/api/chat-webhooks/...`, so they need HTTPS mode on a
+  domain reachable from the internet. Discord also works in `--local` mode.
+- To turn chat connectors off, use **Settings → Experimental → Chat
+  connectors**. Re-running the installer never turns it back on.
+- Installed before this was added? Re-run the install command, or flip that switch.
 
 ## Commands
 

@@ -183,6 +183,24 @@ check_dns() {
   fi
 }
 
+enable_chat_connectors_default() {
+  # Paperclip's chat connectors (Telegram, Slack, Discord, Teams, GitHub) are an
+  # experimental setting, off by default upstream. Turn it on once, only if it
+  # was never set, so an admin who switched it off keeps their choice.
+  local out
+  out="$(dc exec -T db psql -U paperclip -d paperclip -qAt -c "INSERT INTO instance_settings (singleton_key, experimental) VALUES ('default', '{\"enableChatConnectors\": true}'::jsonb) ON CONFLICT (singleton_key) DO UPDATE SET experimental = instance_settings.experimental || '{\"enableChatConnectors\": true}'::jsonb, updated_at = now() WHERE NOT (instance_settings.experimental ? 'enableChatConnectors') RETURNING 'enabled'" < /dev/null 2>&1)" \
+    || { warn "Could not turn on chat connectors (Settings > Experimental): $out"; return 0; }
+  if [ "$out" = "enabled" ]; then
+    ok "Chat connectors turned on (Telegram, Slack, Discord, Teams). Switch: Settings > Experimental."
+  fi
+}
+
+chat_connectors_state() { # on | off | ?
+  local v
+  v="$(dc exec -T db psql -U paperclip -d paperclip -qAt -c "SELECT COALESCE(experimental->>'enableChatConnectors', 'false') FROM instance_settings WHERE singleton_key = 'default'" < /dev/null 2>/dev/null || true)"
+  case "$v" in true) echo on ;; false|"") echo off ;; *) echo "?" ;; esac
+}
+
 install_backup_schedule() {
   if [ -d /run/systemd/system ]; then
     cat > /etc/systemd/system/paperclip-backup.service <<EOF
@@ -315,6 +333,7 @@ EOF
   dc pull < /dev/null || warn "Some images could not be downloaded; continuing with any already here."
   dc up -d < /dev/null
   wait_healthy
+  enable_chat_connectors_default
   install_backup_schedule
   ln -sf "$ROOT/paperclip.sh" /usr/local/bin/paperclip 2>/dev/null && ok "Command installed: paperclip (try: paperclip status)"
 
@@ -483,6 +502,12 @@ cmd_status() {
     echo "URL: $url (plain HTTP, private network only)"
   fi
   echo "Version: $(env_get PAPERCLIP_VERSION) (pinned, no auto-update)"
+  local chat; chat="$(chat_connectors_state)"
+  if [ "$chat" = "on" ] && [ "$(env_get PAPERCLIP_MODE)" = "local" ]; then
+    echo "Chat connectors: on (Telegram, Slack, Teams and GitHub need HTTPS mode; Discord works here)"
+  else
+    echo "Chat connectors: $chat (Settings > Experimental)"
+  fi
   if [ "$(env_get PAPERCLIP_AUTH_DISABLE_SIGN_UP)" = "true" ]; then
     echo "Sign-ups: off"
   else
