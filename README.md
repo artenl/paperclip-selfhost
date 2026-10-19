@@ -26,7 +26,7 @@ the Claude token now) and does everything else:
 ## Why: the 8-hour logout
 
 When you connect a **Claude subscription** in Paperclip (stable releases up to at
-least 2026.1005.0), Paperclip runs `claude auth login` and keeps only the access token
+least 2026.1012.0), Paperclip runs `claude auth login` and keeps only the access token
 it returns. That token expires after about 8 hours, and Paperclip discards the refresh
 token that would renew it. So every 8 hours, every agent fails with `401` /
 *"terminal access failure"* until someone reconnects by hand.
@@ -209,7 +209,7 @@ Settings and secrets live in `/opt/paperclip/deploy/.env`, readable by root only
 Paperclip's port 3100 listens only on the server itself in HTTPS mode; Caddy is the
 way in.
 
-Tested with Paperclip 2026.1005.0 and Claude Code 2.1.291. CI installs the stack from
+Tested with Paperclip 2026.1012.0 and Claude Code 2.1.296. CI installs the stack from
 scratch with the one-line command on every change.
 
 ## License
