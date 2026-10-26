@@ -25,15 +25,16 @@ the Claude token now) and does everything else:
 
 ## Why: the 8-hour logout
 
-When you connect a **Claude subscription** in Paperclip (stable releases up to at
-least 2026.1012.0), Paperclip runs `claude auth login` and keeps only the access token
-it returns. That token expires after about 8 hours, and Paperclip discards the refresh
-token that would renew it. So every 8 hours, every agent fails with `401` /
-*"terminal access failure"* until someone reconnects by hand.
+When you connected a **Claude subscription** in Paperclip (stable releases up to
+2026.1012.0), Paperclip ran `claude auth login` and kept only the access token it
+returned. That token expires after about 8 hours, and Paperclip discarded the refresh
+token that would renew it. So every 8 hours, every agent failed with `401` /
+*"terminal access failure"* until someone reconnected by hand. Paperclip 2026.1023.0
+fixed this: its own sign-in now runs `claude setup-token` too.
 
-This setup uses `claude setup-token` instead: Claude Code's official way to run on a
-subscription without anyone at the keyboard. Its token is **valid for one year** and
-needs no refresh. It is given to Paperclip's server, and every agent uses it.
+This setup has used `claude setup-token` from the start: Claude Code's official way
+to run on a subscription without anyone at the keyboard. Its token is **valid for one
+year** and needs no refresh. It is given to Paperclip's server, and every agent uses it.
 
 ## Requirements
 
@@ -200,7 +201,7 @@ uses that variable for any agent that has no AI connection attached, so all agen
 share one token that never needs refreshing.
 
 Both modes run Paperclip with `PAPERCLIP_DEPLOYMENT_EXPOSURE=public`. That turns off
-Paperclip's own Claude sign-in, which is the one that stores 8-hour tokens. It also
+Paperclip's own Claude sign-in, which stored 8-hour tokens before 2026.1023.0. It also
 disables local stdio MCP connectors; remote (HTTP) MCP connectors still work. If you
 need stdio connectors, set `PAPERCLIP_EXPOSURE=private` in `deploy/.env` and run
 `paperclip restart`, but then avoid Paperclip's "Sign in with Claude" button.
@@ -209,7 +210,7 @@ Settings and secrets live in `/opt/paperclip/deploy/.env`, readable by root only
 Paperclip's port 3100 listens only on the server itself in HTTPS mode; Caddy is the
 way in.
 
-Tested with Paperclip 2026.1012.0 and Claude Code 2.1.296. CI installs the stack from
+Tested with Paperclip 2026.1023.0 and Claude Code 2.1.306. CI installs the stack from
 scratch with the one-line command on every change.
 
 ## License
