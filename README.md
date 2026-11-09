@@ -210,7 +210,7 @@ Settings and secrets live in `/opt/paperclip/deploy/.env`, readable by root only
 Paperclip's port 3100 listens only on the server itself in HTTPS mode; Caddy is the
 way in.
 
-Tested with Paperclip 2026.1023.0 and Claude Code 2.1.306. CI installs the stack from
+Tested with Paperclip 2026.1106.0 and Claude Code 2.1.318. CI installs the stack from
 scratch with the one-line command on every change.
 
 ## License
