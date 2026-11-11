@@ -145,6 +145,11 @@ agents can still use any model your plan offers in Claude Code:
    `paperclip check --model claude-fable-5-2`
 2. In the agent's **Model** field, type the model ID and choose **Enter custom
    model…**.
+3. Set the agent's **Execution engine** to **Claude CLI**. Paperclip's default
+   engine (ACP) runs its own copy of Claude Code, which can be older than the
+   container's `claude` and is then refused for new models (*"Claude Code 2.1.286
+   does not support this model"* for Fable 5.2 on Paperclip 2026.1106.0). The
+   check above tests the container's `claude`, which is what the CLI engine runs.
 
 If the check fails with a message about the model rather than the token, your
 plan doesn't include it, or the Claude Code inside your Paperclip version is too

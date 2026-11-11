@@ -452,6 +452,16 @@ EOF
   save_token "$token"
 }
 
+claude_versions() { # "<container claude version> <ACP engine's bundled Claude Code version>"
+  # The ACP engine (Paperclip's default) loads Claude Code through its own Claude
+  # Agent SDK, which can be older than the 'claude' command the CLI engine runs.
+  dc exec -T -u node paperclip sh -c '
+    cli=$(claude --version 2>/dev/null | cut -d" " -f1)
+    acp=$(readlink -f /app/packages/adapters/claude-local/node_modules/@agentclientprotocol/claude-agent-acp 2>/dev/null)
+    sdk=$([ -n "$acp" ] && node -p "require(\"$acp/../../@anthropic-ai/claude-agent-sdk/package.json\").claudeCodeVersion" 2>/dev/null)
+    echo "${cli:-unknown} ${sdk:-unknown}"' < /dev/null 2>/dev/null || echo "unknown unknown"
+}
+
 cmd_check() { # [--model <id>]: also prove a specific model works on this subscription
   local model=""
   while [ $# -gt 0 ]; do
@@ -478,10 +488,15 @@ cmd_check() { # [--model <id>]: also prove a specific model works on this subscr
   if [ "$rc" -eq 0 ] && [ "$(printf '%s' "$out" | tr -d '[:space:].!' | tr '[:lower:]' '[:upper:]')" = "OK" ]; then
     ok "Claude answered: $(printf '%s' "$out" | tr -d '\n')"
     if [ -n "$model" ]; then
-      ok "$model works on this subscription. To use it, type it in an agent's Model field and choose 'Enter custom model...'."
+      ok "$model works on this subscription with Claude Code $(claude_versions | cut -d' ' -f1) (the container's 'claude')."
       if printf '%s' "$err" | grep -q "doesn't recognize the model"; then
-        warn "The Claude Code inside this Paperclip version doesn't know $model yet: it works, but assumes a 200k context window. A newer Paperclip brings a newer Claude Code (paperclip update)."
+        warn "That Claude Code doesn't know $model yet: it works, but assumes a 200k context window."
       fi
+      local acp_cc; acp_cc="$(claude_versions | cut -d' ' -f2)"
+      echo "    To use it: in the agent's settings type $model in Model and choose 'Enter custom model...'."
+      echo "    Then set Execution engine to 'Claude CLI'. The default ACP engine runs its own"
+      echo "    older Claude Code (${acp_cc:-unknown}), which Anthropic may refuse for new models"
+      echo "    (\"Claude Code ... does not support this model\")."
     else
       ok "The subscription token works. Agents without an 'AI connection' use it."
     fi
