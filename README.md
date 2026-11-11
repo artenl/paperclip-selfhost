@@ -41,8 +41,9 @@ year** and needs no refresh. It is given to Paperclip's server, and every agent 
 - A Linux server with root access: a VPS, a home server or a VM. Tested on Ubuntu
   24.04; any distribution that [get.docker.com](https://get.docker.com) supports
   should work. Docker is installed for you if missing.
-- 4 GB RAM recommended (2 GB minimum) and 15 GB of free disk. The Paperclip image
-  alone takes about 8 GB once unpacked.
+- 4 GB RAM recommended (2 GB minimum) and 30 GB of free disk. The Paperclip image
+  alone takes about 17 GB once unpacked (2026.1106.0), and an update briefly
+  needs room for the old and new images side by side.
 - A Claude Pro or Max subscription.
 - For HTTPS: ports 80 and 443 reachable, and a domain pointing to the server. No
   domain? The installer offers `<your-ip>.sslip.io`, which works with no DNS setup.

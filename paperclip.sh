@@ -106,6 +106,12 @@ wait_healthy() {
   return 1
 }
 
+docker_free_gb() { # free space where Docker keeps its images, in GB ("" if unknown)
+  local root; root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+  [ -n "$root" ] && [ -d "$root" ] || return 0
+  df -Pk "$root" 2>/dev/null | awk 'NR==2 {print int($4 / 1048576)}' || true
+}
+
 public_ip() { curl -4 -fsS --max-time 8 https://api.ipify.org 2>/dev/null || true; }
 lan_ip() {
   ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") {print $(i+1); exit}}' \
@@ -458,21 +464,30 @@ cmd_check() { # [--model <id>]: also prove a specific model works on this subscr
   need_env
   [ -n "$(env_get CLAUDE_CODE_OAUTH_TOKEN)" ] || die "No token set. Run: paperclip token"
   say "Asking Claude${model:+ ($model)} for a one-word reply with the agents' credentials..."
-  local out rc=0
+  local raw out err rc=0
   # Same container and environment as the agents; a throwaway Claude home.
-  out="$(dc exec -T -u node -e HOME=/tmp/paperclip-check -e CLAUDE_CONFIG_DIR=/tmp/paperclip-check/.claude -e CHECK_MODEL="$model" paperclip \
-    sh -c 'mkdir -p "$CLAUDE_CONFIG_DIR" && cd /tmp/paperclip-check && timeout 120 claude -p "Reply with exactly the word OK and nothing else." ${CHECK_MODEL:+--model "$CHECK_MODEL"} --output-format text < /dev/null 2>&1' < /dev/null)" || rc=$?
-  out="$(printf '%s' "$out" | sed -E 's/sk-ant-[A-Za-z0-9_-]+/sk-ant-***/g' | tail -n 5)"
+  # The reply (stdout) and Claude Code's warnings (stderr) come back separated
+  # by a marker line, so a warning never hides a correct "OK".
+  raw="$(dc exec -T -u node -e HOME=/tmp/paperclip-check -e CLAUDE_CONFIG_DIR=/tmp/paperclip-check/.claude -e CHECK_MODEL="$model" paperclip \
+    sh -c 'mkdir -p "$CLAUDE_CONFIG_DIR" && cd /tmp/paperclip-check || exit 1
+      timeout 120 claude -p "Reply with exactly the word OK and nothing else." ${CHECK_MODEL:+--model "$CHECK_MODEL"} --output-format text < /dev/null > out.txt 2> err.txt
+      rc=$?; cat out.txt; printf "\n__PAPERCLIP_STDERR__\n"; cat err.txt; exit $rc' < /dev/null)" || rc=$?
+  raw="$(printf '%s' "$raw" | sed -E 's/sk-ant-[A-Za-z0-9_-]+/sk-ant-***/g')"
+  out="$(printf '%s' "${raw%%__PAPERCLIP_STDERR__*}" | tail -n 5)"
+  err="$(printf '%s' "${raw#*__PAPERCLIP_STDERR__}" | sed '/^[[:space:]]*$/d' | tail -n 5)"
   if [ "$rc" -eq 0 ] && [ "$(printf '%s' "$out" | tr -d '[:space:].!' | tr '[:lower:]' '[:upper:]')" = "OK" ]; then
-    ok "Claude answered: $out"
+    ok "Claude answered: $(printf '%s' "$out" | tr -d '\n')"
     if [ -n "$model" ]; then
       ok "$model works on this subscription. To use it, type it in an agent's Model field and choose 'Enter custom model...'."
+      if printf '%s' "$err" | grep -q "doesn't recognize the model"; then
+        warn "The Claude Code inside this Paperclip version doesn't know $model yet: it works, but assumes a 200k context window. A newer Paperclip brings a newer Claude Code (paperclip update)."
+      fi
     else
       ok "The subscription token works. Agents without an 'AI connection' use it."
     fi
   else
     warn "Claude did not answer correctly (exit $rc):"
-    printf '    %s\n' "$out" >&2
+    printf '%s\n%s\n' "$out" "$err" | sed '/^[[:space:]]*$/d; s/^/    /' >&2
     if [ -n "$model" ]; then
       die "$model did not work. If the message is about the model (not the token), your plan or this Claude Code version doesn't offer it; try 'paperclip update' to a newer Paperclip."
     fi
@@ -582,12 +597,21 @@ cmd_update() {
     echo "To update these scripts, re-run the install command from $PROJECT_URL"
     return 0
   fi
-  say "Checking that $IMAGE_REPO:$target exists..."
-  docker pull "$IMAGE_REPO:$target" >/dev/null || die "No image $IMAGE_REPO:$target"
+  [ "$target" != "$current" ] || { ok "Already on $target."; return 0; }
+  # Recent images are large (2026.1106.0 is about 17 GB unpacked), and the old
+  # one stays on disk until the update succeeds.
+  local free_gb; free_gb="$(docker_free_gb)"
+  if [ -n "$free_gb" ] && [ "$free_gb" -lt 20 ]; then
+    die "Only ${free_gb} GB free for Docker; an update needs about 20 GB. Free some space (df -h; docker image ls) and try again."
+  fi
+  say "Downloading $IMAGE_REPO:$target (several GB, a few minutes)..."
+  docker pull "$IMAGE_REPO:$target" >/dev/null || die "Could not download $IMAGE_REPO:$target (wrong version, or no disk space?)"
   cmd_backup
   env_set PAPERCLIP_VERSION "$target"
   dc up -d paperclip < /dev/null
   if wait_healthy; then
+    # Reclaim the previous image's space; a rollback downloads it again.
+    if docker image rm "$IMAGE_REPO:$current" >/dev/null 2>&1; then ok "Removed the $current image to free disk space."; fi
     ok "Now on $target (was $current). Roll back with: paperclip update $current"
   else
     warn "Rolling back to $current."
