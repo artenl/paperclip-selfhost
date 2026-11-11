@@ -133,12 +133,29 @@ Then send your bot a message on Telegram. In a group, write
   connectors**. Re-running the installer never turns it back on.
 - Installed before this was added? Re-run the install command, or flip that switch.
 
+## Models Paperclip doesn't list yet
+
+Paperclip asks Anthropic for the current model list only when it has an API key.
+With a subscription token, as here, it shows a list built into Paperclip, which
+lags behind new releases (for example, Claude Fable 5.2 is missing from it). Your
+agents can still use any model your plan offers in Claude Code:
+
+1. Check the model works on your subscription:
+   `paperclip check --model claude-fable-5-2`
+2. In the agent's **Model** field, type the model ID and choose **Enter custom
+   model…**.
+
+If the check fails with a message about the model rather than the token, your
+plan doesn't include it, or the Claude Code inside your Paperclip version is too
+old: `paperclip update` shows whether a newer Paperclip is available.
+
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `paperclip status` | Containers, URL, version, days left on the token, last backup |
 | `paperclip check` | Proves the agents' Claude login works right now |
+| `paperclip check --model <id>` | Proves a specific model works on your subscription (see [above](#models-paperclip-doesnt-list-yet)) |
 | `paperclip token` | Creates or replaces the Claude token |
 | `paperclip invite` | One-time link to create the first admin account |
 | `paperclip signups off` / `on` | Closes or reopens account creation (open it while a teammate accepts an invite) |

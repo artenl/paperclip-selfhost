@@ -4,7 +4,7 @@
 # Usage (as root):
 #   paperclip install [options]   first-time setup, starts everything (see below)
 #   paperclip token [--paste]     create/replace the 1-year Claude token and apply it
-#   paperclip check               prove the agents' Claude login works right now
+#   paperclip check [--model <id>]  prove the agents' Claude login (or a given model) works
 #   paperclip invite              print a one-time link to create the first admin account
 #   paperclip signups off|on      block (or allow again) new account creation
 #   paperclip status              containers, URL, version, token age, last backup
@@ -446,21 +446,36 @@ EOF
   save_token "$token"
 }
 
-cmd_check() {
+cmd_check() { # [--model <id>]: also prove a specific model works on this subscription
+  local model=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --model) model="${2:-}"; shift 2 ;;
+      *) die "Usage: paperclip check [--model <model id>]" ;;
+    esac
+  done
+  [ -z "$model" ] || [[ "$model" =~ ^[A-Za-z0-9._:-]+$ ]] || die "'$model' is not a model ID (example: claude-fable-5-2)."
   need_env
   [ -n "$(env_get CLAUDE_CODE_OAUTH_TOKEN)" ] || die "No token set. Run: paperclip token"
-  say "Asking Claude for a one-word reply with the agents' credentials..."
+  say "Asking Claude${model:+ ($model)} for a one-word reply with the agents' credentials..."
   local out rc=0
   # Same container and environment as the agents; a throwaway Claude home.
-  out="$(dc exec -T -u node -e HOME=/tmp/paperclip-check -e CLAUDE_CONFIG_DIR=/tmp/paperclip-check/.claude paperclip \
-    sh -c 'mkdir -p "$CLAUDE_CONFIG_DIR" && cd /tmp/paperclip-check && timeout 120 claude -p "Reply with exactly the word OK and nothing else." --output-format text < /dev/null 2>&1' < /dev/null)" || rc=$?
+  out="$(dc exec -T -u node -e HOME=/tmp/paperclip-check -e CLAUDE_CONFIG_DIR=/tmp/paperclip-check/.claude -e CHECK_MODEL="$model" paperclip \
+    sh -c 'mkdir -p "$CLAUDE_CONFIG_DIR" && cd /tmp/paperclip-check && timeout 120 claude -p "Reply with exactly the word OK and nothing else." ${CHECK_MODEL:+--model "$CHECK_MODEL"} --output-format text < /dev/null 2>&1' < /dev/null)" || rc=$?
   out="$(printf '%s' "$out" | sed -E 's/sk-ant-[A-Za-z0-9_-]+/sk-ant-***/g' | tail -n 5)"
   if [ "$rc" -eq 0 ] && [ "$(printf '%s' "$out" | tr -d '[:space:].!' | tr '[:lower:]' '[:upper:]')" = "OK" ]; then
     ok "Claude answered: $out"
-    ok "The subscription token works. Agents without an 'AI connection' use it."
+    if [ -n "$model" ]; then
+      ok "$model works on this subscription. To use it, type it in an agent's Model field and choose 'Enter custom model...'."
+    else
+      ok "The subscription token works. Agents without an 'AI connection' use it."
+    fi
   else
     warn "Claude did not answer correctly (exit $rc):"
     printf '    %s\n' "$out" >&2
+    if [ -n "$model" ]; then
+      die "$model did not work. If the message is about the model (not the token), your plan or this Claude Code version doesn't offer it; try 'paperclip update' to a newer Paperclip."
+    fi
     die "Token check failed. Create a new one with: paperclip token"
   fi
 }
@@ -629,7 +644,7 @@ cmd_uninstall() {
 case "${1:-help}" in
   install)    shift; cmd_install "$@" ;;
   token)      shift; cmd_token "${1:-}" ;;
-  check)      cmd_check ;;
+  check)      shift; cmd_check "$@" ;;
   invite)     cmd_invite ;;
   signups)    shift; cmd_signups "${1:-}" ;;
   status)     cmd_status ;;
