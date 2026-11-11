@@ -165,6 +165,7 @@ old: `paperclip update` shows whether a newer Paperclip is available.
 | `paperclip token` | Creates or replaces the Claude token |
 | `paperclip invite` | One-time link to create the first admin account |
 | `paperclip signups off` / `on` | Closes or reopens account creation (open it while a teammate accepts an invite) |
+| `paperclip upload-limit <MB>` | Raises (or lowers) the largest file you can upload; `default` goes back to 10 MB (see [below](#troubleshooting)) |
 | `paperclip logs` | Follows Paperclip's logs |
 | `paperclip restart` / `stop` / `start` | What they say |
 | `paperclip backup` | Backs up now (it also runs every night at 03:17) |
@@ -211,6 +212,13 @@ paperclip start
 - **HTTPS does not come up.** `paperclip status` shows whether the domain resolves to
   the server. Open ports 80 and 443 in your provider's firewall, then wait a minute;
   Caddy retries the certificate on its own.
+- **"Attachment is larger than the 10 MB limit".** Paperclip accepts files up to
+  10 MB by default. Raise the limit, for example to 100 MB, with
+  `paperclip upload-limit 100` (up to 2048). It applies to files people and agents
+  upload. Paperclip holds each upload in memory while it arrives, so keep the limit
+  well below your server's RAM; the command warns you if it isn't. An upload must
+  also finish within 5 minutes. Files sent through Telegram stay capped by
+  Telegram, which lets bots download only files up to 20 MB.
 - **"Ports 80/443 already in use".** Another web server or reverse proxy holds them.
   Stop it, or install with `--local`. An older Paperclip stack can be retired with
   `paperclip remove-old <its folder>`.

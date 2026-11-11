@@ -43,6 +43,14 @@ jobs:
           echo "$health" | grep -q '"status":"ok"'
           echo "$health" | grep -q '"localAiLoginSupported":false'
           curl -fsS -o /dev/null http://127.0.0.1:3100/
+      - name: Upload limit can be raised and reset
+        run: |
+          sudo paperclip upload-limit 50
+          sudo paperclip status | grep -q 'Upload limit: 50 MB per file'
+          [ "$(cd /opt/paperclip/deploy && sudo docker compose exec -T paperclip printenv PAPERCLIP_ATTACHMENT_MAX_BYTES)" = 52428800 ]
+          if sudo paperclip upload-limit 5000; then exit 1; fi
+          sudo paperclip upload-limit default
+          sudo paperclip upload-limit | grep -q 'Upload limit: 10 MB per file'
       - name: Status, backup and an idempotent re-run
         run: |
           sudo paperclip status | tee status.log

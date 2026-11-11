@@ -7,6 +7,7 @@
 #   paperclip check [--model <id>]  prove the agents' Claude login (or a given model) works
 #   paperclip invite              print a one-time link to create the first admin account
 #   paperclip signups off|on      block (or allow again) new account creation
+#   paperclip upload-limit [<MB>] show or change the largest file you can upload
 #   paperclip status              containers, URL, version, token age, last backup
 #   paperclip logs                follow the Paperclip logs (Ctrl+C to stop)
 #   paperclip backup              database dump + files archive into ./backups (keeps 7)
@@ -558,6 +559,7 @@ cmd_status() {
   else
     warn "Sign-ups: OPEN (anyone reaching the site can create an account). Close with: paperclip signups off"
   fi
+  echo "Upload limit: $(upload_limit_mb) MB per file"
   local created; created="$(env_get CLAUDE_TOKEN_CREATED)"
   if [ -z "$(env_get CLAUDE_CODE_OAUTH_TOKEN)" ]; then
     warn "Claude token: NOT SET. Run: paperclip token"
@@ -581,6 +583,36 @@ cmd_signups() {
   dc up -d paperclip < /dev/null
   wait_healthy
   ok "Sign-ups are now $1."
+}
+
+upload_limit_mb() { # current per-file upload limit in MB
+  local bytes; bytes="$(env_get PAPERCLIP_ATTACHMENT_MAX_BYTES)"
+  if [[ "$bytes" =~ ^[0-9]+$ ]] && [ "$bytes" -gt 0 ]; then echo $(( bytes / 1048576 )); else echo 10; fi
+}
+
+cmd_upload_limit() { # [<MB> | default]
+  need_env
+  local mb="${1:-}"
+  if [ -z "$mb" ]; then
+    echo "Upload limit: $(upload_limit_mb) MB per file. Change it with: paperclip upload-limit <MB>"
+    return
+  fi
+  need_root
+  if [ "$mb" = "default" ]; then
+    env_set PAPERCLIP_ATTACHMENT_MAX_BYTES ""
+  elif [[ "$mb" =~ ^[0-9]+$ ]] && [ "$mb" -ge 1 ] && [ "$mb" -le 2048 ]; then
+    env_set PAPERCLIP_ATTACHMENT_MAX_BYTES "$(( mb * 1048576 ))"
+  else
+    die "Usage: paperclip upload-limit <MB, 1 to 2048> | default"
+  fi
+  dc up -d paperclip < /dev/null
+  wait_healthy
+  ok "Uploads are now limited to $(upload_limit_mb) MB per file."
+  # Paperclip holds each upload in memory until it has arrived in full.
+  local ram_mb; ram_mb="$(awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo 2>/dev/null || true)"
+  if [ -n "$ram_mb" ] && [ $(( $(upload_limit_mb) * 4 )) -gt "$ram_mb" ]; then
+    warn "Paperclip holds each upload in memory while it arrives, and this server has $ram_mb MB of RAM. A few large uploads at once could run it out of memory."
+  fi
 }
 
 cmd_backup() {
@@ -686,6 +718,7 @@ case "${1:-help}" in
   check)      shift; cmd_check "$@" ;;
   invite)     cmd_invite ;;
   signups)    shift; cmd_signups "${1:-}" ;;
+  upload-limit) shift; cmd_upload_limit "${1:-}" ;;
   status)     cmd_status ;;
   logs)       shift; dc logs -f --tail=200 "${@:-paperclip}" ;;
   backup)     cmd_backup ;;
@@ -695,5 +728,5 @@ case "${1:-help}" in
   start)      need_env; dc up -d < /dev/null; wait_healthy ;;
   remove-old) shift; cmd_remove_old "${1:-}" ;;
   uninstall)  cmd_uninstall ;;
-  *) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac

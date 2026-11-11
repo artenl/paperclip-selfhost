@@ -53,6 +53,9 @@ services:
       # one year, no refresh). Every agent without a Paperclip "AI connection"
       # uses it. Set it with: paperclip token
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      # Largest file that can be uploaded, in bytes. Empty = Paperclip's
+      # default (10 MB). Set it with: paperclip upload-limit <MB>
+      PAPERCLIP_ATTACHMENT_MAX_BYTES: ${PAPERCLIP_ATTACHMENT_MAX_BYTES:-}
     volumes:
       # Agent workspaces, uploads, Paperclip's own backups and secrets key.
       - ./data/paperclip:/paperclip
