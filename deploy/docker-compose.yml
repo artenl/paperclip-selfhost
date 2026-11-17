@@ -80,10 +80,13 @@ services:
       - paperclip
     environment:
       PAPERCLIP_DOMAIN: ${PAPERCLIP_DOMAIN:-}
+    # Every address by default. When another program (Tailscale Serve, for
+    # example) uses 80/443 on an address of its own, `paperclip install` sets
+    # PAPERCLIP_HTTPS_IP so that Caddy listens on the public address only.
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "${PAPERCLIP_HTTPS_IP:+${PAPERCLIP_HTTPS_IP}:}80:80"
+      - "${PAPERCLIP_HTTPS_IP:+${PAPERCLIP_HTTPS_IP}:}443:443"
+      - "${PAPERCLIP_HTTPS_IP:+${PAPERCLIP_HTTPS_IP}:}443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data/caddy/data:/data

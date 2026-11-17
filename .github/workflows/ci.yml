@@ -21,6 +21,12 @@ jobs:
           printf '%s\n' PAPERCLIP_VERSION=0 POSTGRES_PASSWORD=x BETTER_AUTH_SECRET=x PAPERCLIP_PUBLIC_URL=http://x > .env
           docker compose config --quiet
           COMPOSE_PROFILES=https docker compose config --quiet
+      - name: Caddy listens on every address, or only on PAPERCLIP_HTTPS_IP when set
+        working-directory: deploy
+        run: |
+          COMPOSE_PROFILES=https docker compose config --format json | jq -e '[.services.caddy.ports[] | select(.host_ip)] | length == 0'
+          COMPOSE_PROFILES=https PAPERCLIP_HTTPS_IP=203.0.113.7 docker compose config --format json \
+            | jq -e '[.services.caddy.ports[].host_ip] | length == 3 and all(. == "203.0.113.7")'
 
   one-line-install:
     # Runs the public one-liner exactly as a user would, against this commit.

@@ -219,9 +219,14 @@ paperclip start
   well below your server's RAM; the command warns you if it isn't. An upload must
   also finish within 5 minutes. Files sent through Telegram stay capped by
   Telegram, which lets bots download only files up to 20 MB.
-- **"Ports 80/443 already in use".** Another web server or reverse proxy holds them.
-  Stop it, or install with `--local`. An older Paperclip stack can be retired with
-  `paperclip remove-old <its folder>`.
+- **"Ports 80/443 already in use", or `paperclip status` says Caddy is not
+  running.** Another program holds those ports, sometimes only since a reboot.
+  Re-run the install command: it shows what holds them.
+  - If that program listens on an address of its own, as Tailscale Serve does on
+    your tailnet address, the installer makes Caddy listen on your public address
+    only, and both keep working.
+  - Otherwise, stop that web server or reverse proxy, or install with `--local`. An
+    older Paperclip stack can be retired with `paperclip remove-old <its folder>`.
 
 ## How it works
 

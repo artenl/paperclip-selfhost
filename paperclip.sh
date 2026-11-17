@@ -159,21 +159,56 @@ foreign_port_holders() { # $1 = port regex; containers outside this stack publis
     | awk -F'|' -v re=":($1)->" '$2 != "paperclip" && $3 ~ re {print $1}' | sort -u
 }
 
+listen_addr() { # ss "Local Address:Port" -> the bare address
+  local a="${1%:*}"; a="${a%%\%*}"; a="${a#[}"; printf '%s\n' "${a%]}"
+}
+
+local_ipv4() { # this server's IPv4 addresses, one per line
+  if command -v ip >/dev/null 2>&1; then
+    ip -o -4 addr show | awk '{ sub(/\/.*/, "", $4); print $4 }'
+  else
+    hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9.]+$' || true
+  fi
+}
+
 check_ports() {
-  local ports holders host="" filter
+  local ports holders wildcard="" specific="" addrs="" procs="" line addr filter ip
   if [ "$(env_get PAPERCLIP_MODE)" = "local" ]; then ports="$(env_get PAPERCLIP_PORT)"; else ports="80|443"; fi
+  ip="$(env_get PAPERCLIP_HTTPS_IP)"
+  if [ -n "$ip" ] && ! local_ipv4 | grep -qxF "$ip"; then
+    warn "$ip is no longer an address of this server; Caddy will listen on every address again."
+    env_set PAPERCLIP_HTTPS_IP ""; ip=""
+  fi
   holders="$(foreign_port_holders "$ports")"
   if command -v ss >/dev/null 2>&1; then
     filter="$(printf '%s' "$ports" | sed -E 's/([0-9]+)/sport = :\1/g; s/\|/ or /g')"
-    # Docker's own listeners are covered by the container check above.
-    host="$(ss -Hltnp "( $filter )" 2>/dev/null | grep -v docker-proxy || true)"
-    # Our own stack's ports are fine.
-    [ -n "$(dc ps -q 2>/dev/null)" ] && [ -z "$holders" ] && host=""
+    # Docker's own listeners (docker-proxy) are covered by the container check above.
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      addr="$(listen_addr "$(awk '{print $4}' <<< "$line")")"
+      case "$addr" in
+        0.0.0.0|'*'|::) wildcard+="    $line"$'\n' ;;
+        *) specific+="    $line"$'\n'; addrs+=" $addr"
+           procs+=" $(sed -nE 's/.*users:\(\("([^"]+)".*/\1/p' <<< "$line")" ;;
+      esac
+    done < <(ss -Hltnp "( $filter )" 2>/dev/null | grep -v docker-proxy || true)
   fi
-  [ -z "$holders" ] && [ -z "$host" ] && return 0
+  # Programs listening on an address of their own (Tailscale Serve on its
+  # 100.x address, for example) can share 80/443 with Caddy if Caddy listens
+  # on the public address only.
+  if [ -z "$holders" ] && [ -z "$wildcard" ] && [ -n "$specific" ] && [ "$(env_get PAPERCLIP_MODE)" = "https" ]; then
+    [ -n "$ip" ] || ip="$(getent ahostsv4 "$(env_get PAPERCLIP_DOMAIN)" 2>/dev/null | awk 'NR==1 {print $1}' || true)"
+    if [ -n "$ip" ] && local_ipv4 | grep -qxF "$ip" && ! grep -qwF -- "$ip" <<< "$addrs"; then
+      [ "$(env_get PAPERCLIP_HTTPS_IP)" = "$ip" ] || env_set PAPERCLIP_HTTPS_IP "$ip"
+      procs="$(printf '%s\n' $procs | sort -u | paste -sd' ' -)"
+      ok "Ports 80/443 are also used by ${procs:-another program} on its own address; Caddy will listen on $ip only."
+      return 0
+    fi
+  fi
+  [ -z "$holders" ] && [ -z "$wildcard" ] && [ -z "$specific" ] && return 0
   warn "Port(s) ${ports//|/ and } already in use on this machine by:"
   [ -n "$holders" ] && printf '    container: %s\n' $holders >&2
-  [ -n "$host" ] && printf '    %s\n' "$host" >&2
+  printf '%s' "$wildcard$specific" >&2
   die "Free them first (another reverse proxy or an older Paperclip? see 'paperclip remove-old'), or use --local --port <n>."
 }
 
@@ -543,6 +578,10 @@ cmd_status() {
   local url; url="$(env_get PAPERCLIP_PUBLIC_URL)"
   if curl -fs -o /dev/null --max-time 5 "$(health_url)"; then ok "Paperclip answers on this machine."; else warn "Paperclip does not answer locally."; fi
   if [ "$(env_get PAPERCLIP_MODE)" = "https" ]; then
+    if ! dc port caddy 443 < /dev/null > /dev/null 2>&1; then
+      warn "Caddy (HTTPS) is not running on ports 80/443, so the site is unreachable."
+      warn "Re-run the install command: it finds what holds those ports and repairs the setup."
+    fi
     if curl -fs -o /dev/null --max-time 10 "$url/api/health"; then ok "$url answers (HTTPS OK)."; else warn "$url does not answer yet (DNS, firewall or certificate)."; fi
   else
     echo "URL: $url (plain HTTP, private network only)"
